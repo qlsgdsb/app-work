@@ -18,6 +18,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -195,7 +197,13 @@ public class HomeFragment extends Fragment {
             contactView.setOnClickListener(v -> {
                 Intent intent = new Intent(requireContext(), ChatActivity.class);
                 intent.putExtra("contact_id", contact.getId());
-                intent.putExtra("contact_name", contact.getName());
+                String encodedName = null;
+                try {
+                    encodedName = URLEncoder.encode(contact.getName(), "UTF-8");
+                } catch (UnsupportedEncodingException e) {
+                    throw new RuntimeException(e);
+                }
+                intent.putExtra("contact_name", encodedName);
                 startActivity(intent);
             });
 
