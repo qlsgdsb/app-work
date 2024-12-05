@@ -2,23 +2,31 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:orientation="vertical">
 
-    <!-- 标题 -->
+    <!-- 标题栏 -->
     <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="消息列表"
-        android:textSize="24sp"
-        android:paddingBottom="16dp"/>
-
-    <!-- 动态消息列表容器 -->
-    <LinearLayout
-        android:id="@+id/message_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
-    </LinearLayout>
+        android:text="消息列表"
+        android:textSize="20sp"
+        android:textColor="@android:color/white"
+        android:background="?attr/colorPrimary"
+        android:padding="16dp"
+        android:textStyle="bold"/>
+
+    <!-- 消息列表容器 -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:id="@+id/contactsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+        </LinearLayout>
+
+    </ScrollView>
 
 </LinearLayout>

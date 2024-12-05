@@ -1,120 +1,214 @@
 package com.example.myapplication;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-import java.io.IOException;
-import java.io.InputStream;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public class HomeFragment extends Fragment {
+    private DatabaseHelper dbHelper;
+    private LinearLayout contactsContainer;
+    private static final String PREFS_NAME = "AppPrefs";
+    private static final String KEY_FIRST_RUN = "isFirstRun";
 
-    private LinearLayout messageContainer;
-    private static final String TAG = "HomeFragment";
-
-    @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.fragment_home, container, false);
-        messageContainer = view.findViewById(R.id.message_container);
-
-        List<Contact> contacts = loadContactsFromJson(getContext());
-        displayContacts(contacts);
-
-        return view;
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        return inflater.inflate(R.layout.fragment_home, container, false);
     }
 
-    // 加载 JSON 文件，解析为联系人列表
-    private List<Contact> loadContactsFromJson(Context context) {
-        List<Contact> contacts = new ArrayList<>();
-        try {
-            InputStream is = context.getAssets().open("messages.json");
-            int size = is.available();
-            byte[] buffer = new byte[size];
-            is.read(buffer);
-            is.close();
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
 
-            String json = new String(buffer, "UTF-8");
-            JSONObject jsonObject = new JSONObject(json);
-            JSONArray contactsArray = jsonObject.getJSONArray("contacts");
+        contactsContainer = view.findViewById(R.id.contactsContainer);
+        dbHelper = new DatabaseHelper(requireContext());
 
-            for (int i = 0; i < contactsArray.length(); i++) {
-                JSONObject contactObject = contactsArray.getJSONObject(i);
-                String name = contactObject.getString("name");
-                JSONArray messagesArray = contactObject.getJSONArray("messages");
-
-                List<String> messages = new ArrayList<>();
-                for (int j = 0; j < messagesArray.length(); j++) {
-                    messages.add(messagesArray.getString(j));
-                }
-
-                contacts.add(new Contact(name, messages));
-            }
-        } catch (IOException | JSONException e) {
-            Log.e(TAG, "Failed to open or parse messages.json", e);
+        if (isFirstRun()) {
+            insertInitialData();
+            setFirstRunComplete();
         }
+
+        displayContacts();
+    }
+
+    private boolean isFirstRun() {
+        SharedPreferences preferences = requireActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return preferences.getBoolean(KEY_FIRST_RUN, true);
+    }
+
+    private void setFirstRunComplete() {
+        SharedPreferences preferences = requireActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putBoolean(KEY_FIRST_RUN, false);
+        editor.apply();
+    }
+
+    private void insertInitialData() {
+        SQLiteDatabase db = dbHelper.getWritableDatabase();
+        db.beginTransaction();
+        try {
+            // 插入联系人
+            ContentValues contactValues = new ContentValues();
+
+            // 插入丁真
+            contactValues.put(DatabaseHelper.COLUMN_NAME, "丁真");
+            long dingzhenId = db.insert(DatabaseHelper.TABLE_CONTACTS, null, contactValues);
+
+            // 插入丁真的消息
+            insertMessage(db, dingzhenId, "你好，今天怎么样？", false);
+            insertMessage(db, dingzhenId, "我刚刚完成了工作。", true);
+            insertMessage(db, dingzhenId, "有时间一起吃饭吗？", false);
+
+            // 插入李华
+            contactValues.clear();
+            contactValues.put(DatabaseHelper.COLUMN_NAME, "李华");
+            long lihuaId = db.insert(DatabaseHelper.TABLE_CONTACTS, null, contactValues);
+
+            // 插入李华的消息
+            insertMessage(db, lihuaId, "在吗？", false);
+            insertMessage(db, lihuaId, "我在的", true);
+            insertMessage(db, lihuaId, "周末有空吗？", false);
+
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    private void insertMessage(SQLiteDatabase db, long contactId, String message, boolean isFromMe) {
+        ContentValues messageValues = new ContentValues();
+        messageValues.put(DatabaseHelper.COLUMN_CONTACT_ID, contactId);
+        messageValues.put(DatabaseHelper.COLUMN_MESSAGE, message);
+        messageValues.put(DatabaseHelper.COLUMN_IS_FROM_ME, isFromMe ? 1 : 0);
+        messageValues.put(DatabaseHelper.COLUMN_TIMESTAMP, System.currentTimeMillis());
+        db.insert(DatabaseHelper.TABLE_MESSAGES, null, messageValues);
+    }
+
+    private List<Contact> loadContactsFromDatabase() {
+        List<Contact> contacts = new ArrayList<>();
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+        Cursor contactsCursor = db.query(
+                DatabaseHelper.TABLE_CONTACTS,
+                new String[]{DatabaseHelper.COLUMN_ID, DatabaseHelper.COLUMN_NAME},
+                null, null, null, null, null);
+
+        if (contactsCursor != null) {
+            try {
+                int idColumnIndex = contactsCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_ID);
+                int nameColumnIndex = contactsCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_NAME);
+
+                while (contactsCursor.moveToNext()) {
+                    long contactId = contactsCursor.getLong(idColumnIndex);
+                    String contactName = contactsCursor.getString(nameColumnIndex);
+
+                    List<Message> messages = loadMessagesForContact(contactId);
+                    contacts.add(new Contact(contactId, contactName, messages));
+                }
+            } catch (IllegalArgumentException e) {
+                e.printStackTrace();
+            } finally {
+                contactsCursor.close();
+            }
+        }
+
         return contacts;
     }
 
-    // 显示联系人列表，每位联系人显示最后一条消息
-    private void displayContacts(List<Contact> contacts) {
+    private List<Message> loadMessagesForContact(long contactId) {
+        List<Message> messages = new ArrayList<>();
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+        Cursor messageCursor = db.query(
+                DatabaseHelper.TABLE_MESSAGES,
+                new String[]{
+                        DatabaseHelper.COLUMN_ID,
+                        DatabaseHelper.COLUMN_MESSAGE,
+                        DatabaseHelper.COLUMN_IS_FROM_ME,
+                        DatabaseHelper.COLUMN_TIMESTAMP
+                },
+                DatabaseHelper.COLUMN_CONTACT_ID + " = ?",
+                new String[]{String.valueOf(contactId)},
+                null, null,
+                DatabaseHelper.COLUMN_TIMESTAMP + " ASC"
+        );
+
+        if (messageCursor != null) {
+            try {
+                int idIndex = messageCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_ID);
+                int messageIndex = messageCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_MESSAGE);
+                int isFromMeIndex = messageCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_IS_FROM_ME);
+                int timestampIndex = messageCursor.getColumnIndexOrThrow(DatabaseHelper.COLUMN_TIMESTAMP);
+
+                while (messageCursor.moveToNext()) {
+                    long messageId = messageCursor.getLong(idIndex);
+                    String messageContent = messageCursor.getString(messageIndex);
+                    boolean isFromMe = messageCursor.getInt(isFromMeIndex) == 1;
+                    long timestamp = messageCursor.getLong(timestampIndex);
+
+                    messages.add(new Message(messageId, messageContent, isFromMe, timestamp));
+                }
+            } catch (IllegalArgumentException e) {
+                e.printStackTrace();
+            } finally {
+                messageCursor.close();
+            }
+        }
+
+        return messages;
+    }
+
+    private void displayContacts() {
+        List<Contact> contacts = loadContactsFromDatabase();
+        contactsContainer.removeAllViews();
+
         for (Contact contact : contacts) {
-            View contactView = LayoutInflater.from(getContext()).inflate(R.layout.item_message, messageContainer, false);
+            View contactView = LayoutInflater.from(requireContext())
+                    .inflate(R.layout.item_contact, contactsContainer, false);
 
-            ImageView profileImage = contactView.findViewById(R.id.profile_image);
-            TextView nameText = contactView.findViewById(R.id.contact_name);
-            TextView messageText = contactView.findViewById(R.id.contact_message);
+            ImageView avatarView = contactView.findViewById(R.id.avatarImageView);
+            TextView nameView = contactView.findViewById(R.id.nameTextView);
+            TextView lastMessageView = contactView.findViewById(R.id.lastMessageTextView);
 
-            profileImage.setImageResource(R.drawable.ic_profile); // 假设使用 ic_profile 作为头像
-            nameText.setText(contact.getName());
-            messageText.setText(contact.getLastMessage()); // 显示最后一条消息
+            nameView.setText(contact.getName());
+            Message lastMessage = contact.getLastMessage();
+            if (lastMessage != null) {
+                lastMessageView.setText(lastMessage.getContent());
+            }
 
-            // 为联系人添加点击事件，进入聊天界面
             contactView.setOnClickListener(v -> {
-                Intent intent = new Intent(getContext(), ChatActivity.class);
+                Intent intent = new Intent(requireContext(), ChatActivity.class);
+                intent.putExtra("contact_id", contact.getId());
                 intent.putExtra("contact_name", contact.getName());
-                intent.putStringArrayListExtra("contact_messages", new ArrayList<>(contact.getMessages()));
                 startActivity(intent);
             });
 
-            messageContainer.addView(contactView);
+
+            contactsContainer.addView(contactView);
         }
     }
 
-    // 联系人数据类
-    private static class Contact {
-        private final String name;
-        private final List<String> messages;
-
-        public Contact(String name, List<String> messages) {
-            this.name = name;
-            this.messages = messages;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public List<String> getMessages() {
-            return messages;
-        }
-
-        public String getLastMessage() {
-            return messages.isEmpty() ? "" : messages.get(messages.size() - 1);
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (dbHelper != null) {
+            dbHelper.close();
         }
     }
 }
